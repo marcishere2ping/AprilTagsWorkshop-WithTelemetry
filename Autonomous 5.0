@@ -1,0 +1,340 @@
+/*
+ * Copyright (c) 2021 OpenFTC Team
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+package org.firstinspires.ftc.teamcode.auton;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
+import org.openftc.apriltag.AprilTagDetection;
+import org.openftc.easyopencv.OpenCvCamera;
+import org.openftc.easyopencv.OpenCvCameraFactory;
+import org.openftc.easyopencv.OpenCvCameraRotation;
+import org.openftc.easyopencv.OpenCvInternalCamera;
+
+import java.util.ArrayList;
+
+@Autonomous
+public class AprilTagAutonomousInitDetectionExample2 extends LinearOpMode
+{
+    
+  private DcMotor leftMotor;
+  private DcMotor LiftR;
+  private CRServo Intake;
+  private DcMotor rightMotor;
+  private DcMotor LiftL;
+  
+  
+    OpenCvCamera camera;
+    AprilTagDetectionPipeline aprilTagDetectionPipeline;
+
+    static final double FEET_PER_METER = 3.28084;
+
+    // Lens intrinsics
+    // UNITS ARE PIXELS
+    // NOTE: this calibration is for the C270 webcam at 800x448.
+    // You will need to do your own calibration for other configurations!
+    double fx = 578.272;
+    double fy = 578.272;
+    double cx = 402.145;
+    double cy = 221.506;
+
+    // UNITS ARE METERS
+    double tagsize = 0.166;
+
+     // Tag ID 1,2,3 from the 36h11 family
+    int LEFT = 1;
+    int MIDDLE = 2;
+    int RIGHT = 3;
+
+    AprilTagDetection tagOfInterest = null;
+
+    @Override
+    public void runOpMode()
+    {
+    
+    leftMotor = hardwareMap.get(DcMotor.class, "leftMotor");
+    LiftR = hardwareMap.get(DcMotor.class, "Lift (R)");
+    Intake = hardwareMap.get(CRServo.class, "Intake");
+    rightMotor = hardwareMap.get(DcMotor.class, "rightMotor");
+    LiftL = hardwareMap.get(DcMotor.class, "Lift (L)");
+
+    leftMotor.setDirection(DcMotorSimple.Direction.REVERSE);
+    LiftR.setDirection(DcMotorSimple.Direction.REVERSE);
+    Intake.setDirection(DcMotorSimple.Direction.REVERSE);
+    leftMotor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+    rightMotor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+    leftMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+    rightMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+    leftMotor.setTargetPosition(0);
+    rightMotor.setTargetPosition(0);
+    leftMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+    rightMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+    leftMotor.setPower(0);
+    rightMotor.setPower(0);
+
+        int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier("cameraMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+        camera = OpenCvCameraFactory.getInstance().createWebcam(hardwareMap.get(WebcamName.class, "Webcam 1"), cameraMonitorViewId);
+        aprilTagDetectionPipeline = new AprilTagDetectionPipeline(tagsize, fx, fy, cx, cy);
+
+        camera.setPipeline(aprilTagDetectionPipeline);
+        camera.openCameraDeviceAsync(new OpenCvCamera.AsyncCameraOpenListener()
+        {
+            @Override
+            public void onOpened()
+            {
+                camera.startStreaming(800,448, OpenCvCameraRotation.UPRIGHT);
+            }
+
+            @Override
+            public void onError(int errorCode)
+            {
+
+            }
+        });
+
+        telemetry.setMsTransmissionInterval(50);
+
+        /*
+         * The INIT-loop:
+         * This REPLACES waitForStart!
+         */
+        while (!isStarted() && !isStopRequested())
+        {
+            ArrayList<AprilTagDetection> currentDetections = aprilTagDetectionPipeline.getLatestDetections();
+
+            if(currentDetections.size() != 0)
+            {
+                boolean tagFound = false;
+
+                for(AprilTagDetection tag : currentDetections)
+                {
+                    if(tag.id == LEFT || tag.id == MIDDLE || tag.id == RIGHT)
+                    {
+                        tagOfInterest = tag;
+                        tagFound = true;
+                        break;
+                    }
+                }
+
+                if(tagFound)
+                {
+                    telemetry.addLine("Tag of interest is in sight!\n\nLocation data:");
+                    tagToTelemetry(tagOfInterest);
+                }
+                else
+                {
+                    telemetry.addLine("Don't see tag of interest :(");
+
+                    if(tagOfInterest == null)
+                    {
+                        telemetry.addLine("(The tag has never been seen)");
+                    }
+                    else
+                    {
+                        telemetry.addLine("\nBut we HAVE seen the tag before; last seen at:");
+                        tagToTelemetry(tagOfInterest);
+                    }
+                }
+
+            }
+            else
+            {
+                telemetry.addLine("Don't see tag of interest :(");
+
+                if(tagOfInterest == null)
+                {
+                    telemetry.addLine("(The tag has never been seen)");
+                }
+                else
+                {
+                    telemetry.addLine("\nBut we HAVE seen the tag before; last seen at:");
+                    tagToTelemetry(tagOfInterest);
+                }
+
+            }
+
+            telemetry.update();
+            sleep(20);
+        }
+
+        /*
+         * The START command just came in: now work off the latest snapshot acquired
+         * during the init loop.
+         */
+
+        /* Update the telemetry */
+        if(tagOfInterest != null)
+        {
+            telemetry.addLine("Tag snapshot:\n");
+            tagToTelemetry(tagOfInterest);
+            telemetry.update();
+        }
+        else
+        {
+            telemetry.addLine("No tag snapshot available, it was never sighted during the init loop :(");
+            telemetry.update();
+        }
+
+        /* Actually do something useful */
+        if(tagOfInterest == null){
+                moveRobot(2500, 2500);
+                moveRobot(-330, -330);
+                moveRobot(-317, 317);
+                moveRobot(250, 250);
+                Intake.setPower(0.4);
+                LiftL.setPower(0.6);
+                LiftR.setPower(0.6);
+                sleep(3300);
+             
+        }else if(tagOfInterest.id == LEFT){
+            //left trajectory
+            Intake.setPower(-0.4);
+                moveRobot(2500, 2500);
+                moveRobotslowed(-330, -330);
+                moveRobotslowed(319, -319);
+                moveRobotslowed(290, 290);
+                moveRobotslowed(10, 10);
+                    LiftL.setPower(0.6);
+                    LiftR.setPower(0.6);
+                            sleep(3200);
+                    LiftL.setPower(0.1);
+                    LiftR.setPower(0.1);
+                        Intake.setPower(0.4);
+                            sleep(3500);
+                moveRobot(-290, -290);
+                moveRobot(305, -305);
+                moveRobotslowed(1075,1075);
+                moveRobot(100,-100);
+                    LiftL.setPower(-0.6);
+                    LiftR.setPower(-0.6);
+                            sleep(1000);
+                    LiftL.setPower(0);
+                    LiftR.setPower(0);
+                
+        }else if(tagOfInterest.id == MIDDLE){
+            //middle trajectory
+            Intake.setPower(-0.4);
+                moveRobot(2500, 2500);
+                    moveRobotslowed(-330, -330);
+                        moveRobotslowed(319, -319);
+                            moveRobotslowed(290, 290);
+                                moveRobotslowed(70, 70);
+                                    LiftL.setPower(0.6);
+                                        LiftR.setPower(0.6);
+                                    sleep(3200);
+                                LiftL.setPower(0.1);
+                            LiftR.setPower(0.1);
+                        Intake.setPower(0.4);
+                    sleep(3500);
+                moveRobot(-290, -290);
+                    moveRobot(-327, 327);
+                    LiftL.setPower(-.6);
+                            LiftR.setPower(-.6);
+                            sleep(3500);
+                              LiftL.setPower(0);
+                            LiftR.setPower(0);
+                            
+                
+        }else{
+            //right trajectory
+            Intake.setPower(-0.4);
+                moveRobot(2500, 2500);
+                    moveRobotslowed(-330, -330);
+                        moveRobotslowed(319, -319);
+                            moveRobotslowed(290, 290);
+                                moveRobotslowed(10, 10);
+                                    LiftL.setPower(0.6);
+                                        LiftR.setPower(0.6);
+                                    sleep(3200);
+                                LiftL.setPower(0.1);
+                            LiftR.setPower(0.1);
+                        Intake.setPower(0.4);
+                    sleep(3500);
+                moveRobot(-290, -290);
+                    moveRobot(-327, 327);
+                        moveRobotslowed(146,146);
+                            moveRobot(-675,675);
+                        Intake.setPower(0);
+                            moveRobot(1360, 1360);
+                                LiftL.setPower(-0.6);
+                                    LiftR.setPower(-0.6);
+                                sleep(900);
+                                LiftL.setPower(0);
+                            LiftR.setPower(0);
+                
+        }
+
+    }
+
+      private void moveRobot(int leftDistance, int rightDistance) {
+    leftMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    rightMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    leftMotor.setTargetPosition(leftDistance);
+    rightMotor.setTargetPosition(rightDistance);
+    leftMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+    rightMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+    leftMotor.setPower(0.51);
+    rightMotor.setPower(0.51);
+    while (leftMotor.isBusy() || rightMotor.isBusy()) {
+      telemetry.addData("Current Left Position", leftMotor.getCurrentPosition());
+      telemetry.addData("Current Right Position", rightMotor.getCurrentPosition());
+      telemetry.update();
+    }
+    leftMotor.setPower(0);
+    rightMotor.setPower(0);
+    sleep(1);
+  }
+  
+        private void moveRobotslowed(int leftDistance, int rightDistance) {
+    leftMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    rightMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    leftMotor.setTargetPosition(leftDistance);
+    rightMotor.setTargetPosition(rightDistance);
+    leftMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+    rightMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+    leftMotor.setPower(0.55);
+    rightMotor.setPower(0.55);
+    while (leftMotor.isBusy() || rightMotor.isBusy()) {
+      telemetry.addData("Current Left Position", leftMotor.getCurrentPosition());
+      telemetry.addData("Current Right Position", rightMotor.getCurrentPosition());
+      telemetry.update();
+    }
+    leftMotor.setPower(0);
+    rightMotor.setPower(0);
+    sleep(1000);
+  }
+    
+    void tagToTelemetry(AprilTagDetection detection)
+    {
+        telemetry.addLine(String.format("\nDetected tag ID=%d", detection.id));
+        telemetry.addLine(String.format("Translation X: %.2f feet", detection.pose.x*FEET_PER_METER));
+        telemetry.addLine(String.format("Translation Y: %.2f feet", detection.pose.y*FEET_PER_METER));
+        telemetry.addLine(String.format("Translation Z: %.2f feet", detection.pose.z*FEET_PER_METER));
+        telemetry.addLine(String.format("Rotation Yaw: %.2f degrees", Math.toDegrees(detection.pose.yaw)));
+        telemetry.addLine(String.format("Rotation Pitch: %.2f degrees", Math.toDegrees(detection.pose.pitch)));
+        telemetry.addLine(String.format("Rotation Roll: %.2f degrees", Math.toDegrees(detection.pose.roll)));
+    }
+}
